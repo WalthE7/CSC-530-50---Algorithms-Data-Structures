@@ -6,20 +6,18 @@ using namespace std;
 bool isPalindrome(const string &word) {
     stack<char> s;
 
-    // Push all characters onto the stack
     for (char ch : word) {
         s.push(ch);
     }
 
-    // Compare characters popped from stack with original word
     for (char ch : word) {
         if (ch != s.top()) {
-            return false; // mismatch found
+            return false; 
         }
         s.pop();
     }
 
-    return true; // all characters matched
+    return true; 
 }
 
 int main() {
@@ -36,3 +34,4 @@ int main() {
 
     return 0;
 }
+
