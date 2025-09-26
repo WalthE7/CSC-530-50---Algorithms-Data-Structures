@@ -1,0 +1,145 @@
+function updateForm() {
+  var form = FormApp.openById("1hz7MoDL8WeeMnGZCU82mjPchfEZiqIQz9uVrfTz3fBY");
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var inventorySheet = ss.getSheetByName("DEN CLOSET UPDATED");
+
+  var data = inventorySheet.getRange(3, 4, inventorySheet.getLastRow() - 2, 3).getValues();
+  // D = Item, E = Category, F = Units
+
+  var categories = {};
+  data.forEach(function(row) {
+    var item = row[0];
+    var category = row[1];
+    if (!categories[category]) categories[category] = new Set();
+    categories[category].add(item);
+  });
+
+  // Clear form before rebuilding
+  while (form.getItems().length) {
+    form.deleteItem(form.getItems()[0]);
+  }
+
+  // User name
+  form.addListItem()
+    .setTitle("Who is making this change?")
+    .setChoiceValues(["Rafael", "Lucia", "Melia", "Walther", "Elly"])
+    .setRequired(false);
+
+  // Category list with logic
+  var categoryItem = form.addListItem()
+    .setTitle("Select a category")
+    .setRequired(false);
+
+  var categoryChoices = [];
+  var sectionMap = {};
+
+  for (var category in categories) {
+    var section = form.addPageBreakItem().setTitle("Category: " + category);
+
+    var itemsArray = Array.from(categories[category]);
+    form.addListItem()
+      .setTitle("Select item from " + category)
+      .setChoiceValues(itemsArray)
+      .setRequired(false);
+
+    form.addListItem()
+      .setTitle("What action?")
+      .setChoiceValues(["Add", "Remove"])
+      .setRequired(false);
+
+    form.addTextItem()
+      .setTitle("Quantity")
+      .setRequired(false);
+
+    sectionMap[category] = section;
+  }
+
+  // Logic for categories
+  for (var category in categories) {
+    categoryChoices.push(categoryItem.createChoice(category, sectionMap[category]));
+  }
+  categoryItem.setChoices(categoryChoices);
+}
+
+function onFormSubmit(e) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var formSheet = ss.getSheetByName("Form Responses");
+  var inventorySheet = ss.getSheetByName("DEN CLOSET UPDATED");
+
+  var row = formSheet.getLastRow();
+  var headers = formSheet.getRange(1, 1, 1, formSheet.getLastColumn()).getValues()[0];
+  var values = formSheet.getRange(row, 1, 1, formSheet.getLastColumn()).getValues()[0];
+
+  // Map headers to values for easy access
+  var dataObj = {};
+  headers.forEach(function(header, idx) {
+    dataObj[header] = values[idx];
+  });
+
+  // Extract data by exact form response headers
+  var user = dataObj["Who is making this change?"] || "";
+  var category = dataObj["Select a category"] || "";
+  var action = dataObj["What action?"] || "";
+  var qtyRaw = dataObj["Quantity"] || "";
+  var qty = Number(qtyRaw);
+  if (isNaN(qty) || qty <= 0) qty = 0;
+
+  // Find the selected item field dynamically
+  var item = "";
+  for (var key in dataObj) {
+    if (key.startsWith("Select item from") && dataObj[key]) {
+      item = dataObj[key];
+      break;
+    }
+  }
+
+  Logger.log(`Form Submission → User: ${user}, Category: ${category}, Item: ${item}, Action: ${action}, Quantity: ${qty}`);
+
+  // Store clean copy in Clean_Responses with correct headers
+  var cleanSheet = ss.getSheetByName("Clean_Responses");
+  if (!cleanSheet) {
+    cleanSheet = ss.insertSheet("Clean_Responses");
+    cleanSheet.appendRow([
+      "Timestamp",
+      "Who is making this change?",
+      "Select a category",
+      "Item",
+      "What action?",
+      "Quantity"
+    ]);
+  }
+  cleanSheet.appendRow([
+    dataObj["Timestamp"],
+    user,
+    category,
+    item,
+    action,
+    qty
+  ]);
+
+  // Update inventory sheet based on submission
+  if (category && item && qty > 0 && (action.toLowerCase() === "add" || action.toLowerCase() === "remove")) {
+    var dataInv = inventorySheet.getRange(3, 4, inventorySheet.getLastRow() - 2, 3).getValues();
+
+    Logger.log(`Updating inventory for item "${item}", category "${category}" with quantity ${qty} and action "${action}"`);
+
+    for (var i = 0; i < dataInv.length; i++) {
+      var sheetItem = (dataInv[i][0] || "").toString().trim().toLowerCase();
+      var sheetCategory = (dataInv[i][1] || "").toString().trim().toLowerCase();
+
+      if (sheetItem === item.trim().toLowerCase() && sheetCategory === category.trim().toLowerCase()) {
+        var rowIndex = i + 3;
+        var currentQty = Number(inventorySheet.getRange(rowIndex, 6).getValue()) || 0;
+        var newQty = action.toLowerCase() === "add" ? currentQty + qty : Math.max(0, currentQty - qty);
+
+        Logger.log(`Inventory updated at row ${rowIndex}: ${currentQty} → ${newQty}`);
+
+        inventorySheet.getRange(rowIndex, 6).setValue(newQty);
+        return;
+      }
+    }
+    Logger.log("No matching inventory item found to update.");
+  } else {
+    Logger.log("Invalid or missing data. Inventory update skipped.");
+  }
+}
